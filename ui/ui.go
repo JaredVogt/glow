@@ -380,6 +380,50 @@ func findLocalFiles(m commonModel) tea.Cmd {
 
 		log.Debug("local directory is", "cwd", cwd)
 
+		// If ShowCurrentDirOnly is true, only search the current directory
+		if m.cfg.ShowCurrentDirOnly {
+			ch := make(chan gitcha.SearchResult)
+			go func() {
+				defer close(ch)
+				
+				// Read directory entries
+				entries, err := os.ReadDir(cwd)
+				if err != nil {
+					// Just close the channel on error - the empty results will be handled
+					return
+				}
+				
+				// Filter for markdown files
+				for _, entry := range entries {
+					if entry.IsDir() {
+						continue
+					}
+					
+					name := entry.Name()
+					
+					// Skip hidden files unless ShowAllFiles is true
+					if !m.cfg.ShowAllFiles && strings.HasPrefix(name, ".") {
+						continue
+					}
+					
+					// Check if it has a markdown extension
+					for _, ext := range markdownExtensions {
+						if strings.HasSuffix(strings.ToLower(name), strings.TrimPrefix(ext, "*")) {
+							fullPath := filepath.Join(cwd, name)
+							info, err := entry.Info()
+							if err != nil {
+								continue
+							}
+							ch <- gitcha.SearchResult{Path: fullPath, Info: info}
+							break
+						}
+					}
+				}
+			}()
+			
+			return initLocalFileSearchMsg{ch: ch, cwd: cwd}
+		}
+
 		// Switch between FindFiles and FindAllFiles to bypass .gitignore rules
 		var ch chan gitcha.SearchResult
 		if m.cfg.ShowAllFiles {
